@@ -132,7 +132,7 @@ def plot_theory_vs_experiment_curves(comparisons, *, direction, figsize=(8, 5)):
         comparisons = [comparisons]
 
     title = "Backward APJN" if direction == "backward" else "Forward APJN"
-    ylabel = r"$\mathscr{J}^{\,B,b}$" if direction == "backward" else r"$\mathscr{J}$"
+    ylabel = r"$\mathscr{J}^{\,B,b}$" if direction == "backward" else r"$\mathscr{J}^{\,b, {source_block}}$"
     fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     alphas = sorted(
         float(cmp["alpha"])
