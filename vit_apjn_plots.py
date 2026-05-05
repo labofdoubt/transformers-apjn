@@ -41,21 +41,21 @@ def prettify_log_axis(ax, axis="y"):
         ax.xaxis.set_minor_formatter(NullFormatter())
 
 
-def plot_equangular_apjn_comparison(comparison_bundle, *, figsize=(14, 5)):
-    inverse = comparison_bundle["inverse"]
+def plot_perm_inv_input_apjn_comparison(comparison_bundle, *, figsize=(14, 5)):
+    backward = comparison_bundle["backward"]
     forward = comparison_bundle["forward"]
-    alphas = np.asarray(sorted(float(alpha) for alpha in inverse["derf"].keys()), dtype=float)
+    alphas = np.asarray(sorted(float(alpha) for alpha in backward["derf"].keys()), dtype=float)
     colors = _alpha_colors(alphas)
 
     fig, axes = plt.subplots(1, 2, figsize=figsize, constrained_layout=True)
 
-    axes[0].plot(inverse["layers"], inverse["preln"]["theory"], color="black", lw=2.0)
-    axes[0].scatter(inverse["layers"], inverse["preln"]["measured"], color="black", s=24, zorder=3)
+    axes[0].plot(backward["layers"], backward["preln"]["theory"], color="black", lw=2.0)
+    axes[0].scatter(backward["layers"], backward["preln"]["measured"], color="black", s=24, zorder=3)
     for alpha in alphas:
-        axes[0].plot(inverse["layers"], inverse["derf"][float(alpha)]["theory"], color=colors[float(alpha)], lw=1.8)
+        axes[0].plot(backward["layers"], backward["derf"][float(alpha)]["theory"], color=colors[float(alpha)], lw=1.8)
         axes[0].scatter(
-            inverse["layers"],
-            inverse["derf"][float(alpha)]["measured"],
+            backward["layers"],
+            backward["derf"][float(alpha)]["measured"],
             color=colors[float(alpha)],
             edgecolors="black",
             linewidths=0.3,
@@ -109,8 +109,8 @@ def plot_theory_vs_experiment_curves(comparisons, *, direction, figsize=(8, 5)):
     if not isinstance(comparisons, (list, tuple)):
         comparisons = [comparisons]
 
-    title = "Backward APJN" if direction == "inverse" else "Forward APJN"
-    ylabel = r"$\mathcal{J}^{\,B,b}$" if direction == "inverse" else r"$\mathcal{J}$"
+    title = "Backward APJN" if direction == "backward" else "Forward APJN"
+    ylabel = r"$\mathcal{J}^{\,B,b}$" if direction == "backward" else r"$\mathcal{J}$"
     fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     alphas = sorted(
         float(cmp["alpha"])
@@ -149,7 +149,7 @@ def plot_depthwise_gmfe(records, *, metric_key="typ_mult_err", figsize=(10, 5)):
     region_names = ["Shallow", "Middle", "Deep"]
     region_centers = {"Shallow": 0.5, "Middle": 1.5, "Deep": 2.5}
     region_boundaries = [1.0, 2.0]
-    alphas = sorted(float(row["alpha"]) for row in records["derf"])
+    alphas = sorted(set(float(row["alpha"]) for row in records["derf"]))
     colors = _alpha_colors(alphas)
     fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     rng = np.random.default_rng(0)
@@ -167,7 +167,7 @@ def plot_depthwise_gmfe(records, *, metric_key="typ_mult_err", figsize=(10, 5)):
         if preln_subset:
             x = np.full(len(preln_subset), cx + preln_offset) + rng.uniform(-0.04, 0.04, size=len(preln_subset))
             y = np.asarray([row[metric_key] for row in preln_subset], dtype=float)
-            ax.scatter(x, y, color="black", s=24, alpha=0.8, zorder=3)
+            ax.scatter(x, y, color="black", s=28, alpha=0.8, zorder=3, marker="o", linewidths=0.0, edgecolors="none")
 
         for alpha in alphas:
             derf_subset = [
@@ -180,7 +180,17 @@ def plot_depthwise_gmfe(records, *, metric_key="typ_mult_err", figsize=(10, 5)):
                 continue
             x = np.full(len(derf_subset), cx + alpha_offset_map[float(alpha)]) + rng.uniform(-0.04, 0.04, size=len(derf_subset))
             y = np.asarray([row[metric_key] for row in derf_subset], dtype=float)
-            ax.scatter(x, y, color=colors[float(alpha)], s=24, alpha=0.8, zorder=3)
+            ax.scatter(
+                x,
+                y,
+                color=colors[float(alpha)],
+                s=28,
+                alpha=0.8,
+                zorder=3,
+                marker="o",
+                linewidths=0.0,
+                edgecolors="none",
+            )
 
     for xline in region_boundaries:
         ax.axvline(xline, color="black", linestyle="--", linewidth=1.0, alpha=0.7)
@@ -201,3 +211,5 @@ def plot_depthwise_gmfe(records, *, metric_key="typ_mult_err", figsize=(10, 5)):
     ax.legend(handles=handles, frameon=False)
     return fig, ax
 
+
+plot_equangular_apjn_comparison = plot_perm_inv_input_apjn_comparison
