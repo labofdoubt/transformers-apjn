@@ -18,8 +18,27 @@ from timm.models import create_model
 try:
     from tqdm.auto import tqdm
 except ModuleNotFoundError:
+    class _TqdmFallback:
+        def __init__(self, iterable=None, **kwargs):
+            self.iterable = iterable
+
+        def __iter__(self):
+            return iter(self.iterable) if self.iterable is not None else iter(())
+
+        def update(self, n=1):
+            return None
+
+        def set_description(self, desc=None):
+            return None
+
+        def set_postfix_str(self, s=None):
+            return None
+
+        def close(self):
+            return None
+
     def tqdm(iterable=None, *args, **kwargs):
-        return iterable
+        return _TqdmFallback(iterable=iterable, **kwargs)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 _CIFAR_DATASET_CACHE: dict[tuple[int, int], object] = {}
@@ -1171,14 +1190,19 @@ def _run_samplewise_apjn_with_activation_stats(
     save_root: str = "/tmp/apjn_results",
     result_postfix: str = "",
 ):
+    rng = np.random.default_rng(int(batch_seed) if deterministic else None)
     if deterministic:
         clear_cifar_experiment_cache()
-    rng = np.random.default_rng(int(batch_seed) if deterministic else None)
+        loader_seed_random = int(batch_seed)
+    else:
+        loader_seed_random = int(rng.integers(0, 2**31 - 1))
     alpha_list = [float(alpha) for alpha in np.asarray(alphas, dtype=float)]
     num_inits = max(1, int(num_model_inits))
     depth = int(model_cfg.depth)
+    batch_size = max(1, int(batch_size))
     measurement_layers = tuple(int(layer) for layer in measurement_layers)
     activation_stat_layers = tuple(int(layer) for layer in activation_stat_layers)
+    num_batches = int(math.ceil(int(n_samples) / float(batch_size)))
 
     bundle = {
         "kind": f"{direction}_apjn_activation_stats",
@@ -1194,6 +1218,7 @@ def _run_samplewise_apjn_with_activation_stats(
             "n_samples": int(n_samples),
             "batch_size": int(batch_size),
             "batch_seed": int(batch_seed),
+            "loader_seed_random": int(loader_seed_random),
             "j_num_draws": int(j_num_draws),
             "hutchinson_block_size": int(hutchinson_block_size),
             "num_model_inits": int(num_inits),
@@ -1202,6 +1227,9 @@ def _run_samplewise_apjn_with_activation_stats(
             "keep_pre_blocks_init": bool(keep_pre_blocks_init),
             "skip_preln": bool(skip_preln),
             "deterministic": bool(deterministic),
+            "randomized_sampling": not bool(deterministic),
+            "batch_filtering": "none",
+            "per_sample_from_batched_passes": True,
         },
         "samples": [],
     }
@@ -1214,54 +1242,67 @@ def _run_samplewise_apjn_with_activation_stats(
         f"{direction}_apjn_activation_stats_depth{depth}_bs{int(batch_size)}",
         result_postfix,
     )
-
-    progress = tqdm(
-        range(int(n_samples)),
-        desc=f"run_cifar_{direction}_apjn_with_activation_stats",
-        leave=False,
-    )
-    for sample_index in progress:
-        draw_index = int(sample_index // int(batch_size))
-        batch_position = int(sample_index % int(batch_size))
-        progress.set_postfix_str(f"sample {int(sample_index) + 1}/{int(n_samples)}")
-        if deterministic:
-            seed_all(int(batch_seed) + int(draw_index))
-        else:
-            seed_all(int(rng.integers(0, 2**31 - 1)))
-
+    batch_records = []
+    for draw_index in range(num_batches):
+        seed_all(int(loader_seed_random) + int(draw_index))
         samples, targets, batch_meta = get_cifar_batch_no_filter(
             batch_size=int(batch_size),
             img_size=model_cfg.img_size,
             num_classes=model_cfg.num_classes,
-            loader_seed=int(batch_seed),
+            loader_seed=int(loader_seed_random),
             draw_index=int(draw_index),
         )
-
-        if bundle["n_tokens_ex_cls"] is None:
-            preview_model = build_vit(model_cfg, use_derf=False)
-            bundle["n_tokens_ex_cls"] = int(get_vit_seq_len_and_dim(preview_model)[0] - 1)
-            del preview_model
-            cuda_cleanup()
-
-        sample_record = {
-            "sample_index": int(sample_index),
-            "batch_draw_index": int(draw_index),
-            "batch_position": int(batch_position),
-            "batch_meta": {
-                **batch_meta,
-                "target": int(targets[int(batch_position)].item()),
+        batch_n = int(samples.shape[0])
+        batch_records.append({
+            "draw_index": int(draw_index),
+            "samples": samples,
+            "targets": targets,
+            "batch_meta": dict(batch_meta),
+            "batch_n": int(batch_n),
+            "preln_values_sum": (
+                {int(layer): np.zeros(batch_n, dtype=float) for layer in measurement_layers}
+                if not bool(skip_preln) else {}
+            ),
+            "preln_stats_sum": (
+                {
+                    int(layer): {
+                        "q": np.zeros(batch_n, dtype=float),
+                        "p": np.zeros(batch_n, dtype=float),
+                    }
+                    for layer in activation_stat_layers
+                }
+                if not bool(skip_preln) else {}
+            ),
+            "derf_values_sum": {
+                float(alpha): {int(layer): np.zeros(batch_n, dtype=float) for layer in measurement_layers}
+                for alpha in alpha_list
             },
-            f"{direction}_apjn": {"preln": {}, "derf": {}},
-            "activation_stats": {"preln": {}, "derf": {}},
-        }
+            "derf_stats_sum": {
+                float(alpha): {
+                    int(layer): {
+                        "q": np.zeros(batch_n, dtype=float),
+                        "p": np.zeros(batch_n, dtype=float),
+                    }
+                    for layer in activation_stat_layers
+                }
+                for alpha in alpha_list
+            },
+        })
 
+    if bundle["n_tokens_ex_cls"] is None:
+        preview_model = build_vit(model_cfg, use_derf=False)
+        bundle["n_tokens_ex_cls"] = int(get_vit_seq_len_and_dim(preview_model)[0] - 1)
+        del preview_model
+        cuda_cleanup()
+
+    total_stages = (0 if bool(skip_preln) else 1) + len(alpha_list)
+    total_batch_passes = len(batch_records) * int(num_inits) * int(total_stages)
+    progress = tqdm(total=total_batch_passes, desc=f"run_cifar_{direction}_apjn_with_activation_stats", leave=False)
+
+    try:
         if not bool(skip_preln):
-            per_init_values = []
-            per_init_stats = []
-            for init_idx in range(num_inits):
-                progress.set_postfix_str(
-                    f"sample {int(sample_index) + 1}/{int(n_samples)}, preln init {int(init_idx) + 1}/{int(num_inits)}"
-                )
+            for init_idx in range(int(num_inits)):
+                progress.set_description(f"{direction} preln init {int(init_idx) + 1}/{int(num_inits)}")
                 seed_all(int(model_cfg.seed) + int(init_idx))
                 model = build_vit(model_cfg, use_derf=False)
                 if keep_pre_blocks_init and preln_pre_blocks_state is not None:
@@ -1273,43 +1314,44 @@ def _run_samplewise_apjn_with_activation_stats(
                 )
                 if keep_pre_blocks_init and preln_pre_blocks_state is None:
                     preln_pre_blocks_state = _extract_vit_pre_blocks_state_dict(model)
-                if direction == "inverse":
-                    values, stats = estimate_inverse_J_and_activation_stats_hutchinson_per_sample(
-                        model,
-                        samples,
-                        l0_list=measurement_layers,
-                        activation_layer_list=activation_stat_layers,
-                        j_num_draws=int(j_num_draws),
-                        j_normalize_by="Y",
-                        draw_block_size=int(hutchinson_block_size),
-                    )
-                else:
-                    values, stats = estimate_direct_J_and_activation_stats_hutchinson_per_sample(
-                        model,
-                        samples,
-                        direct_layers=measurement_layers,
-                        direct_source_block=int(source_block_index),
-                        activation_layer_list=activation_stat_layers,
-                        j_num_draws=int(j_num_draws),
-                        j_normalize_by="Y",
-                        draw_block_size=int(hutchinson_block_size),
-                    )
-                per_init_values.append({k: float(v[batch_position]) for k, v in values.items()})
-                per_init_stats.append({
-                    k: {"q": float(v["q"][batch_position]), "p": float(v["p"][batch_position])}
-                    for k, v in stats.items()
-                })
-                del model
-                cuda_cleanup()
-            sample_record[f"{direction}_apjn"]["preln"] = _average_layer_value_dicts(per_init_values)
-            sample_record["activation_stats"]["preln"] = _average_activation_dicts(per_init_stats)
+                try:
+                    for batch_idx, rec in enumerate(batch_records, start=1):
+                        progress.set_postfix_str(f"batch {int(batch_idx)}/{len(batch_records)}")
+                        if direction == "inverse":
+                            values, stats = estimate_inverse_J_and_activation_stats_hutchinson_per_sample(
+                                model,
+                                rec["samples"],
+                                l0_list=measurement_layers,
+                                activation_layer_list=activation_stat_layers,
+                                j_num_draws=int(j_num_draws),
+                                j_normalize_by="Y",
+                                draw_block_size=int(hutchinson_block_size),
+                            )
+                        else:
+                            values, stats = estimate_direct_J_and_activation_stats_hutchinson_per_sample(
+                                model,
+                                rec["samples"],
+                                direct_layers=measurement_layers,
+                                direct_source_block=int(source_block_index),
+                                activation_layer_list=activation_stat_layers,
+                                j_num_draws=int(j_num_draws),
+                                j_normalize_by="Y",
+                                draw_block_size=int(hutchinson_block_size),
+                            )
+                        for layer in measurement_layers:
+                            rec["preln_values_sum"][int(layer)] += np.asarray(values[int(layer)], dtype=float)
+                        for layer in activation_stat_layers:
+                            rec["preln_stats_sum"][int(layer)]["q"] += np.asarray(stats[int(layer)]["q"], dtype=float)
+                            rec["preln_stats_sum"][int(layer)]["p"] += np.asarray(stats[int(layer)]["p"], dtype=float)
+                        progress.update(1)
+                finally:
+                    del model
+                    cuda_cleanup()
 
         for alpha in alpha_list:
-            per_init_values = []
-            per_init_stats = []
-            for init_idx in range(num_inits):
-                progress.set_postfix_str(
-                    f"sample {int(sample_index) + 1}/{int(n_samples)}, derf alpha={float(alpha):g}, init {int(init_idx) + 1}/{int(num_inits)}"
+            for init_idx in range(int(num_inits)):
+                progress.set_description(
+                    f"{direction} derf alpha={float(alpha):g} init {int(init_idx) + 1}/{int(num_inits)}"
                 )
                 seed_all(int(model_cfg.seed) + int(init_idx))
                 model = build_vit(model_cfg, use_derf=True)
@@ -1323,42 +1365,115 @@ def _run_samplewise_apjn_with_activation_stats(
                 set_all_derf_alpha_(model, float(alpha))
                 if keep_pre_blocks_init and derf_pre_blocks_state is None:
                     derf_pre_blocks_state = _extract_vit_pre_blocks_state_dict(model)
-                if direction == "inverse":
-                    values, stats = estimate_inverse_J_and_activation_stats_hutchinson_per_sample(
-                        model,
-                        samples,
-                        l0_list=measurement_layers,
-                        activation_layer_list=activation_stat_layers,
-                        j_num_draws=int(j_num_draws),
-                        j_normalize_by="Y",
-                        draw_block_size=int(hutchinson_block_size),
-                    )
-                else:
-                    values, stats = estimate_direct_J_and_activation_stats_hutchinson_per_sample(
-                        model,
-                        samples,
-                        direct_layers=measurement_layers,
-                        direct_source_block=int(source_block_index),
-                        activation_layer_list=activation_stat_layers,
-                        j_num_draws=int(j_num_draws),
-                        j_normalize_by="Y",
-                        draw_block_size=int(hutchinson_block_size),
-                    )
-                per_init_values.append({k: float(v[batch_position]) for k, v in values.items()})
-                per_init_stats.append({
-                    k: {"q": float(v["q"][batch_position]), "p": float(v["p"][batch_position])}
-                    for k, v in stats.items()
-                })
-                del model
-                cuda_cleanup()
-            sample_record[f"{direction}_apjn"]["derf"][float(alpha)] = _average_layer_value_dicts(per_init_values)
-            sample_record["activation_stats"]["derf"][float(alpha)] = _average_activation_dicts(per_init_stats)
-
-        bundle["samples"].append(sample_record)
-        if save_results and (sample_index + 1) % max(1, int(save_every_n_samples)) == 0:
-            _save_bundle_pickle(bundle, save_root=save_root, folder_name=folder_name, filename="results.pkl")
-    if hasattr(progress, "close"):
+                try:
+                    for batch_idx, rec in enumerate(batch_records, start=1):
+                        progress.set_postfix_str(f"batch {int(batch_idx)}/{len(batch_records)}")
+                        if direction == "inverse":
+                            values, stats = estimate_inverse_J_and_activation_stats_hutchinson_per_sample(
+                                model,
+                                rec["samples"],
+                                l0_list=measurement_layers,
+                                activation_layer_list=activation_stat_layers,
+                                j_num_draws=int(j_num_draws),
+                                j_normalize_by="Y",
+                                draw_block_size=int(hutchinson_block_size),
+                            )
+                        else:
+                            values, stats = estimate_direct_J_and_activation_stats_hutchinson_per_sample(
+                                model,
+                                rec["samples"],
+                                direct_layers=measurement_layers,
+                                direct_source_block=int(source_block_index),
+                                activation_layer_list=activation_stat_layers,
+                                j_num_draws=int(j_num_draws),
+                                j_normalize_by="Y",
+                                draw_block_size=int(hutchinson_block_size),
+                            )
+                        for layer in measurement_layers:
+                            rec["derf_values_sum"][float(alpha)][int(layer)] += np.asarray(values[int(layer)], dtype=float)
+                        for layer in activation_stat_layers:
+                            rec["derf_stats_sum"][float(alpha)][int(layer)]["q"] += np.asarray(
+                                stats[int(layer)]["q"], dtype=float
+                            )
+                            rec["derf_stats_sum"][float(alpha)][int(layer)]["p"] += np.asarray(
+                                stats[int(layer)]["p"], dtype=float
+                            )
+                        progress.update(1)
+                finally:
+                    del model
+                    cuda_cleanup()
+    finally:
         progress.close()
+
+    next_checkpoint = (
+        (((len(bundle["samples"]) // int(save_every_n_samples)) + 1) * int(save_every_n_samples))
+        if int(save_every_n_samples) > 0 else None
+    )
+    for rec in batch_records:
+        for batch_position in range(int(rec["batch_n"])):
+            if len(bundle["samples"]) >= int(n_samples):
+                break
+            sample_record = {
+                "sample_index": int(len(bundle["samples"])),
+                "batch_draw_index": int(rec["draw_index"]),
+                "batch_position": int(batch_position),
+                "batch_meta": {
+                    **dict(rec["batch_meta"]),
+                    "batch_draw_index": int(rec["draw_index"]),
+                    "batch_position": int(batch_position),
+                    "target": int(rec["targets"][int(batch_position)].item()),
+                },
+                f"{direction}_apjn": {
+                    "preln": (
+                        {}
+                        if bool(skip_preln) else {
+                            int(layer): float(rec["preln_values_sum"][int(layer)][int(batch_position)] / float(num_inits))
+                            for layer in measurement_layers
+                        }
+                    ),
+                    "derf": {
+                        float(alpha): {
+                            int(layer): float(
+                                rec["derf_values_sum"][float(alpha)][int(layer)][int(batch_position)] / float(num_inits)
+                            )
+                            for layer in measurement_layers
+                        }
+                        for alpha in alpha_list
+                    },
+                },
+                "activation_stats": {
+                    "preln": (
+                        {}
+                        if bool(skip_preln) else {
+                            int(layer): {
+                                "q": float(rec["preln_stats_sum"][int(layer)]["q"][int(batch_position)] / float(num_inits)),
+                                "p": float(rec["preln_stats_sum"][int(layer)]["p"][int(batch_position)] / float(num_inits)),
+                            }
+                            for layer in activation_stat_layers
+                        }
+                    ),
+                    "derf": {
+                        float(alpha): {
+                            int(layer): {
+                                "q": float(
+                                    rec["derf_stats_sum"][float(alpha)][int(layer)]["q"][int(batch_position)] / float(num_inits)
+                                ),
+                                "p": float(
+                                    rec["derf_stats_sum"][float(alpha)][int(layer)]["p"][int(batch_position)] / float(num_inits)
+                                ),
+                            }
+                            for layer in activation_stat_layers
+                        }
+                        for alpha in alpha_list
+                    },
+                },
+            }
+            bundle["samples"].append(sample_record)
+            if save_results and next_checkpoint is not None and len(bundle["samples"]) >= int(next_checkpoint):
+                _save_bundle_pickle(bundle, save_root=save_root, folder_name=folder_name, filename="results.pkl")
+                next_checkpoint += int(save_every_n_samples)
+        if len(bundle["samples"]) >= int(n_samples):
+            break
 
     if save_results:
         saved_path = _save_bundle_pickle(bundle, save_root=save_root, folder_name=folder_name, filename="results.pkl")
