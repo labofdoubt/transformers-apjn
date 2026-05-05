@@ -15,6 +15,12 @@ from datasets import build_dataset
 from dynamic_tanh import DynamicErf, convert_ln_to_derf
 from timm.models import create_model
 
+try:
+    from tqdm.auto import tqdm
+except ModuleNotFoundError:
+    def tqdm(iterable=None, *args, **kwargs):
+        return iterable
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 _CIFAR_DATASET_CACHE: dict[tuple[int, int], object] = {}
 _CIFAR_STREAM_CACHE: dict[tuple[int, int, int], dict] = {}
@@ -1209,9 +1215,15 @@ def _run_samplewise_apjn_with_activation_stats(
         result_postfix,
     )
 
-    for sample_index in range(int(n_samples)):
+    progress = tqdm(
+        range(int(n_samples)),
+        desc=f"run_cifar_{direction}_apjn_with_activation_stats",
+        leave=False,
+    )
+    for sample_index in progress:
         draw_index = int(sample_index // int(batch_size))
         batch_position = int(sample_index % int(batch_size))
+        progress.set_postfix_str(f"sample {int(sample_index) + 1}/{int(n_samples)}")
         if deterministic:
             seed_all(int(batch_seed) + int(draw_index))
         else:
@@ -1247,6 +1259,9 @@ def _run_samplewise_apjn_with_activation_stats(
             per_init_values = []
             per_init_stats = []
             for init_idx in range(num_inits):
+                progress.set_postfix_str(
+                    f"sample {int(sample_index) + 1}/{int(n_samples)}, preln init {int(init_idx) + 1}/{int(num_inits)}"
+                )
                 seed_all(int(model_cfg.seed) + int(init_idx))
                 model = build_vit(model_cfg, use_derf=False)
                 if keep_pre_blocks_init and preln_pre_blocks_state is not None:
@@ -1293,6 +1308,9 @@ def _run_samplewise_apjn_with_activation_stats(
             per_init_values = []
             per_init_stats = []
             for init_idx in range(num_inits):
+                progress.set_postfix_str(
+                    f"sample {int(sample_index) + 1}/{int(n_samples)}, derf alpha={float(alpha):g}, init {int(init_idx) + 1}/{int(num_inits)}"
+                )
                 seed_all(int(model_cfg.seed) + int(init_idx))
                 model = build_vit(model_cfg, use_derf=True)
                 if keep_pre_blocks_init and derf_pre_blocks_state is not None:
@@ -1339,6 +1357,8 @@ def _run_samplewise_apjn_with_activation_stats(
         bundle["samples"].append(sample_record)
         if save_results and (sample_index + 1) % max(1, int(save_every_n_samples)) == 0:
             _save_bundle_pickle(bundle, save_root=save_root, folder_name=folder_name, filename="results.pkl")
+    if hasattr(progress, "close"):
+        progress.close()
 
     if save_results:
         saved_path = _save_bundle_pickle(bundle, save_root=save_root, folder_name=folder_name, filename="results.pkl")
@@ -1759,4 +1779,3 @@ def compute_depthwise_gmfe_records(
                     **metrics,
                 })
     return out
-
