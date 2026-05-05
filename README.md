@@ -54,7 +54,7 @@ For CIFAR runs, `--data_set CIFAR --data_path /tmp/cifar100` is enough; the data
 
 ## Training ViTs
 
-The training loop already lives in [main.py](/Users/sergeyalekseev/Desktop/ML_projects/norm_free_transformer/subcritical_signal_prop/main.py). A convenient way to launch runs from a notebook is to build the CLI args with `get_args_parser()` and then call `main.main(args)`.
+The training loop already lives in [main.py](/Users/sergeyalekseev/Desktop/ML_projects/norm_free_transformer/subcritical_signal_prop/main.py). A convenient way to launch runs from a notebook is to build the CLI args with `get_args_parser()` and then call `main.main(args)`. See [notebooks/apjn_colab_demo.ipynb](/Users/sergeyalekseev/Desktop/ML_projects/norm_free_transformer/subcritical_signal_prop/notebooks/apjn_colab_demo.ipynb) for concrete examples.
 
 ```python
 from pathlib import Path
@@ -110,7 +110,7 @@ dyt_main.main(args)
 - `--dynamic_erf true`: replaces block-local LayerNorms with `DynamicErf`.
 - `--derf_alpha_init_value A`: initializes every `DynamicErf` layer with `alpha=A`.
 
-## Concrete Training Patterns
+## Concrete Training Example
 
 ### Derf Depth Sweep
 
@@ -141,8 +141,8 @@ WARMUP_EPOCHS = 3
 WARMUP_STEPS = -1
 BETA2 = 0.999
 
-for DERF_ALPHA_INIT_VALUE in [0.7, 0.8]:
-    for DEPTH in [30, 36]:
+for DERF_ALPHA_INIT_VALUE in [0.3, 0.5, 0.7, 0.9]:
+    for DEPTH in [12, 24, 36]:
         OUTPUT_DIR = Path(
             f"/content/drive/MyDrive/ml_projects/norm_free_transformer_depth/"
             f"derf_depth_{DEPTH}_epochs_{EPOCHS}_warmup_{WARMUP_EPOCHS}_"
@@ -186,97 +186,3 @@ for DERF_ALPHA_INIT_VALUE in [0.7, 0.8]:
         dyt_main.main(args)
 ```
 
-### Pre-LN Depth Sweep
-
-This is the same pattern, except `--dynamic_erf false`. You still control depth with `--model_depth`, but the model stays in its standard pre-LN form.
-
-```python
-from pathlib import Path
-
-import main as dyt_main
-
-MODEL_NAME = "vit_base_patch16_224"
-EPOCHS = 20
-DEPTH = 48
-
-parser = dyt_main.get_args_parser()
-args = parser.parse_args([
-    "--model", MODEL_NAME,
-    "--epochs", str(EPOCHS),
-    "--batch_size", "128",
-    "--lr", "1e-4",
-    "--min_lr", "1e-4",
-    "--weight_decay", "0.05",
-    "--warmup_epochs", "3",
-    "--warmup_steps", "-1",
-    "--early_stopping", "true",
-    "--early_stopping_patience", "10",
-    "--opt_betas", "0.9", "0.999",
-    "--data_set", "CIFAR",
-    "--data_path", "/tmp/cifar100",
-    "--nb_classes", "100",
-    "--input_size", "224",
-    "--output_dir", "/tmp/preln_depth_48",
-    "--log_dir", "/tmp/preln_depth_48/tb",
-    "--model_depth", str(DEPTH),
-    "--dynamic_erf", "false",
-    "--derf_alpha_init_value", "0.5",
-    "--derf_freeze_alpha", "false",
-    "--save_ckpt", "true",
-    "--save_init_ckpt", "true",
-    "--save_best_ckpt", "false",
-    "--save_best_ema_ckpt", "false",
-    "--save_ckpt_freq", "5",
-    "--save_ckpt_num", "8",
-    "--enable_wandb", "false",
-])
-dyt_main.main(args)
-```
-
-### Scaling Both MLP and Attention-Value Initialization
-
-```python
-from pathlib import Path
-
-import main as dyt_main
-
-MODEL_NAME = "vit_base_patch16_224"
-EPOCHS = 15
-DEPTH = 12
-DERF_ALPHA_INIT_VALUE = 0.5
-
-for mult in [2.0, 4.0]:
-    parser = dyt_main.get_args_parser()
-    args = parser.parse_args([
-        "--model", MODEL_NAME,
-        "--epochs", str(EPOCHS),
-        "--batch_size", "240",
-        "--lr", "3e-4",
-        "--min_lr", "3e-4",
-        "--weight_decay", "0.05",
-        "--warmup_epochs", "3",
-        "--warmup_steps", "-1",
-        "--data_set", "CIFAR",
-        "--data_path", "/tmp/cifar100",
-        "--nb_classes", "100",
-        "--input_size", "224",
-        "--output_dir", f"/tmp/derf_mult_{mult}",
-        "--log_dir", f"/tmp/derf_mult_{mult}/tb",
-        "--model_depth", str(DEPTH),
-        "--use_mlp_init_std_multiplier", "true",
-        "--mlp_init_std_multiplier", str(mult),
-        "--use_attn_value_init_std_multiplier", "true",
-        "--attn_value_init_std_multiplier", str(mult),
-        "--dynamic_erf", "true",
-        "--derf_alpha_init_value", str(DERF_ALPHA_INIT_VALUE),
-        "--derf_freeze_alpha", "false",
-        "--save_ckpt", "true",
-        "--save_init_ckpt", "true",
-        "--save_best_ckpt", "false",
-        "--save_best_ema_ckpt", "false",
-        "--save_ckpt_freq", "5",
-        "--save_ckpt_num", "8",
-        "--enable_wandb", "false",
-    ])
-    dyt_main.main(args)
-```
