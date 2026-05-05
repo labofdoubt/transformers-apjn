@@ -218,7 +218,7 @@ def _run_batchwise_apjn_with_activation_stats(
     num_model_inits: int,
     attn_mult: float,
     mlp_mult: float,
-    keep_pre_blocks_init: bool,
+    keep_pre_transformer_init: bool,
     skip_preln: bool,
     direction: str,
     source_block_index: int = 0,
@@ -261,7 +261,7 @@ def _run_batchwise_apjn_with_activation_stats(
             "num_model_inits": int(num_inits),
             "attn_mult": float(attn_mult),
             "mlp_mult": float(mlp_mult),
-            "keep_pre_blocks_init": bool(keep_pre_blocks_init),
+            "keep_pre_transformer_init": bool(keep_pre_transformer_init),
             "skip_preln": bool(skip_preln),
             "deterministic": bool(deterministic),
             "randomized_sampling": not bool(deterministic),
@@ -324,10 +324,10 @@ def _run_batchwise_apjn_with_activation_stats(
                 progress.set_description(f"{direction} preln init {int(init_idx) + 1}/{int(num_inits)}")
                 seed_all(int(model_cfg.seed) + int(init_idx))
                 model = build_vit(model_cfg, use_derf=False)
-                if keep_pre_blocks_init and preln_pre_blocks_state is not None:
+                if keep_pre_transformer_init and preln_pre_blocks_state is not None:
                     _load_partial_state_dict_(model, preln_pre_blocks_state)
                 scale_vit_mlp_and_value_attn_init_std(model, mlp_multiplier=float(mlp_mult), attn_multiplier=float(attn_mult))
-                if keep_pre_blocks_init and preln_pre_blocks_state is None:
+                if keep_pre_transformer_init and preln_pre_blocks_state is None:
                     preln_pre_blocks_state = _extract_vit_pre_blocks_state_dict(model)
                 try:
                     for batch_idx, rec in enumerate(batch_records, start=1):
@@ -368,11 +368,11 @@ def _run_batchwise_apjn_with_activation_stats(
                 progress.set_description(f"{direction} derf alpha={float(alpha):g} init {int(init_idx) + 1}/{int(num_inits)}")
                 seed_all(int(model_cfg.seed) + int(init_idx))
                 model = build_vit(model_cfg, use_derf=True)
-                if keep_pre_blocks_init and derf_pre_blocks_state is not None:
+                if keep_pre_transformer_init and derf_pre_blocks_state is not None:
                     _load_partial_state_dict_(model, derf_pre_blocks_state)
                 scale_vit_mlp_and_value_attn_init_std(model, mlp_multiplier=float(mlp_mult), attn_multiplier=float(attn_mult))
                 set_all_derf_alpha_(model, float(alpha))
-                if keep_pre_blocks_init and derf_pre_blocks_state is None:
+                if keep_pre_transformer_init and derf_pre_blocks_state is None:
                     derf_pre_blocks_state = _extract_vit_pre_blocks_state_dict(model)
                 try:
                     for batch_idx, rec in enumerate(batch_records, start=1):
@@ -487,7 +487,7 @@ def run_cifar_backward_apjn_with_activation_stats(
     num_model_inits: int = 1,
     attn_mult: float = 1.0,
     mlp_mult: float = 1.0,
-    keep_pre_blocks_init: bool = False,
+    keep_pre_transformer_init: bool = False,
     skip_preln: bool = False,
     deterministic: bool = False,
     save_results: bool = False,
@@ -510,7 +510,7 @@ def run_cifar_backward_apjn_with_activation_stats(
         num_model_inits=num_model_inits,
         attn_mult=attn_mult,
         mlp_mult=mlp_mult,
-        keep_pre_blocks_init=keep_pre_blocks_init,
+        keep_pre_transformer_init=keep_pre_transformer_init,
         skip_preln=skip_preln,
         direction="backward",
         deterministic=deterministic,
@@ -535,7 +535,7 @@ def run_cifar_forward_apjn_with_activation_stats(
     num_model_inits: int = 1,
     attn_mult: float = 1.0,
     mlp_mult: float = 1.0,
-    keep_pre_blocks_init: bool = False,
+    keep_pre_transformer_init: bool = False,
     skip_preln: bool = False,
     deterministic: bool = False,
     save_results: bool = False,
@@ -559,7 +559,7 @@ def run_cifar_forward_apjn_with_activation_stats(
         num_model_inits=num_model_inits,
         attn_mult=attn_mult,
         mlp_mult=mlp_mult,
-        keep_pre_blocks_init=keep_pre_blocks_init,
+        keep_pre_transformer_init=keep_pre_transformer_init,
         skip_preln=skip_preln,
         direction="forward",
         source_block_index=source_block_index,

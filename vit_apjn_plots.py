@@ -47,7 +47,7 @@ def plot_perm_inv_input_apjn_comparison(comparison_bundle, *, figsize=(14, 5)):
     alphas = np.asarray(sorted(float(alpha) for alpha in backward["derf"].keys()), dtype=float)
     colors = _alpha_colors(alphas)
 
-    fig, axes = plt.subplots(1, 2, figsize=figsize, constrained_layout=True)
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
 
     axes[0].plot(backward["layers"], backward["preln"]["theory"], color="black", lw=2.0)
     axes[0].scatter(backward["layers"], backward["preln"]["measured"], color="black", s=24, zorder=3)
@@ -62,9 +62,9 @@ def plot_perm_inv_input_apjn_comparison(comparison_bundle, *, figsize=(14, 5)):
             s=28,
             zorder=3,
         )
-    axes[0].set_title(r"Backward APJN $\mathcal{J}^{\,B,b}$")
+    axes[0].set_title(r"Backward APJN $\mathscr{J}^{\,B,b}$")
     axes[0].set_xlabel(r"$b$")
-    axes[0].set_ylabel(r"$\mathcal{J}^{\,B,b}$")
+    axes[0].set_ylabel(r"$\mathscr{J}^{\,B,b}$")
     axes[0].set_yscale("log")
     prettify_log_axis(axes[0], "y")
     prettify_axes(axes[0])
@@ -83,11 +83,11 @@ def plot_perm_inv_input_apjn_comparison(comparison_bundle, *, figsize=(14, 5)):
             zorder=3,
         )
     axes[1].set_title(
-        rf"Forward APJN $\mathcal{{J}}^{{\,b,{int(forward['source_block_index'])}}}$"
+        rf"Forward APJN $\mathscr{{J}}^{{\,b,{int(forward['source_block_index'])}}}$"
     )
     axes[1].set_xlabel(r"$b$")
     axes[1].set_ylabel(
-        rf"$\mathcal{{J}}^{{\,b,{int(forward['source_block_index'])}}}$"
+        rf"$\mathscr{{J}}^{{\,b,{int(forward['source_block_index'])}}}$"
     )
     axes[1].set_yscale("log")
     prettify_log_axis(axes[1], "y")
@@ -101,7 +101,14 @@ def plot_perm_inv_input_apjn_comparison(comparison_bundle, *, figsize=(14, 5)):
         Line2D([0], [0], color=colors[float(alpha)], lw=1.8, label=rf"Derf theory, $\alpha={float(alpha):g}$")
         for alpha in alphas
     )
-    fig.legend(handles=legend_handles, loc="upper center", ncol=min(2 + len(alphas), 4), frameon=False)
+    fig.legend(
+        handles=legend_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.01),
+        ncol=min(2 + len(alphas), 4),
+        frameon=False,
+    )
+    fig.tight_layout(rect=(0.0, 0.10, 1.0, 1.0))
     return fig, axes
 
 
@@ -110,7 +117,7 @@ def plot_theory_vs_experiment_curves(comparisons, *, direction, figsize=(8, 5)):
         comparisons = [comparisons]
 
     title = "Backward APJN" if direction == "backward" else "Forward APJN"
-    ylabel = r"$\mathcal{J}^{\,B,b}$" if direction == "backward" else r"$\mathcal{J}$"
+    ylabel = r"$\mathscr{J}^{\,B,b}$" if direction == "backward" else r"$\mathscr{J}$"
     fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     alphas = sorted(
         float(cmp["alpha"])
