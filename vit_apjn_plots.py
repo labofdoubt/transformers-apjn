@@ -98,14 +98,29 @@ def plot_perm_inv_input_apjn_comparison(comparison_bundle, *, figsize=(14, 5)):
         Line2D([0], [0], marker="o", color="black", linestyle="None", markersize=6, label="pre-LN ViT"),
     ]
     legend_handles.extend(
-        Line2D([0], [0], color=colors[float(alpha)], lw=1.8, label=rf"Derf theory, $\alpha={float(alpha):g}$")
+        [
+            Line2D([0], [0], color=colors[float(alpha)], lw=1.8, label=rf"Derf theory, $\alpha={float(alpha):g}$"),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                linestyle="None",
+                markersize=6,
+                markerfacecolor=colors[float(alpha)],
+                markeredgecolor="black",
+                markeredgewidth=0.6,
+                color=colors[float(alpha)],
+                label=rf"Derf ViT, $\alpha={float(alpha):g}$",
+            ),
+        ]
         for alpha in alphas
     )
+    legend_handles = [handle for pair in legend_handles for handle in (pair if isinstance(pair, list) else [pair])]
     fig.legend(
         handles=legend_handles,
         loc="lower center",
         bbox_to_anchor=(0.5, 0.01),
-        ncol=min(2 + len(alphas), 4),
+        ncol=min(2 + 2 * len(alphas), 4),
         frameon=False,
     )
     fig.tight_layout(rect=(0.0, 0.10, 1.0, 1.0))
