@@ -1,6 +1,49 @@
 # Norm-Free Transformer Experiments
 
-This repo contains ViT training code plus APJN utilities for comparing empirical Jacobian norms to mean-field theory.
+This repo has two main parts:
+
+- APJN utilities for comparing empirical ViT Jacobian norms to mean-field theory.
+- ViT training code for pre-LN and Derf models.
+
+## Start Here: APJN Colab Notebook
+
+If your goal is to run, inspect, or extend the APJN experiments, start with [notebooks/apjn_colab_demo.ipynb](/Users/sergeyalekseev/Desktop/ML_projects/norm_free_transformer/subcritical_signal_prop/notebooks/apjn_colab_demo.ipynb).
+
+It is the main entry point for the APJN part of this repo and shows the intended end-to-end workflow. It:
+
+- clones the repo and installs the minimal dependencies,
+- runs permutation-symmetric input APJN experiments on ViT models,
+- runs backward APJN measurements on CIFAR-100,
+- runs forward APJN measurements on CIFAR-100,
+- builds theory curves from measured initial conditions,
+- plots theory vs. experiment,
+- plots depth-wise GMFEs.
+
+If you want to understand how the APJN pipeline is meant to be used end-to-end, start with that notebook.
+
+## APJN Tools
+
+The notebook-facing APJN code lives in:
+
+- [apjn/](/Users/sergeyalekseev/Desktop/ML_projects/norm_free_transformer/subcritical_signal_prop/apjn): computation, theory, experiment runners, save/load helpers.
+- [vit_apjn_plots.py](/Users/sergeyalekseev/Desktop/ML_projects/norm_free_transformer/subcritical_signal_prop/vit_apjn_plots.py): plotting utilities.
+
+The main APJN entry points are:
+
+- `run_perm_inv_input_apjn_exp`
+  Runs permutation-symmetric input APJN experiments.
+- `run_cifar_backward_apjn_with_activation_stats`
+  Measures backward APJNs on CIFAR-100 and saves per-sample activation statistics used later for theory initialization.
+- `run_cifar_forward_apjn_with_activation_stats`
+  Measures forward APJNs on CIFAR-100 and saves per-sample activation statistics.
+- `simulate_recursions_full`
+  Runs the mean-field recurrence used to produce theoretical `q`, `p`, backward APJN, and forward APJN curves.
+- `build_backward_theory_comparison`
+  Builds theory-vs-experiment comparisons for backward APJNs from saved CIFAR runs.
+- `build_forward_theory_comparison`
+  Builds theory-vs-experiment comparisons for forward APJNs from saved CIFAR runs.
+- `build_perm_inv_input_exp_theory_comparison`
+  Builds theory-vs-experiment comparisons for the permutation-symmetric input experiment.
 
 ## Setup
 
@@ -12,7 +55,7 @@ pip install timm
 
 For CIFAR runs, `--data_set CIFAR --data_path /tmp/cifar100` is enough; the dataset will be downloaded there if needed.
 
-## Training ViTs from Python
+## Training ViTs
 
 The training loop already lives in [main.py](/Users/sergeyalekseev/Desktop/ML_projects/norm_free_transformer/subcritical_signal_prop/main.py). A convenient way to launch runs from a notebook is to build the CLI args with `get_args_parser()` and then call `main.main(args)`.
 
@@ -62,21 +105,21 @@ args = parser.parse_args([
 dyt_main.main(args)
 ```
 
-### Important APJN-related training flags
+### Important Training Flags
 
-- `--model_depth`: overrides the number of transformer blocks passed to `timm.create_model(...)`.
-- `--use_mlp_init_std_multiplier true` with `--mlp_init_std_multiplier X`: multiplies the initial MLP `fc1` and `fc2` weights in every ViT block by `X`.
+- `--model_depth`: sets the number of transformer blocks passed to `timm.create_model(...)`.
+- `--use_mlp_init_std_multiplier true` with `--mlp_init_std_multiplier X`: multiplies the initial MLP `fc1` and `fc2` weights in each ViT block by `X`.
 - `--use_attn_value_init_std_multiplier true` with `--attn_value_init_std_multiplier X`: multiplies the attention value projection and attention output projection weights by `X`.
 - `--dynamic_erf true`: replaces block-local LayerNorms with `DynamicErf`.
 - `--derf_alpha_init_value A`: initializes every `DynamicErf` layer with `alpha=A`.
-- `--derf_freeze_alpha true|false`: if `true`, keeps `alpha` fixed during training; if `false`, `alpha` is learned.
 
-## Concrete training patterns
+## Concrete Training Patterns
 
-### Derf depth sweep
+### Derf Depth Sweep
 
 ```python
 from pathlib import Path
+
 import main as dyt_main
 
 MODEL_NAME = "vit_base_patch16_224"
@@ -132,7 +175,7 @@ for DERF_ALPHA_INIT_VALUE in [0.7, 0.8]:
             "--output_dir", str(OUTPUT_DIR),
             "--log_dir", str(LOG_DIR),
             "--model_depth", str(DEPTH),
-            "--dynamic_erf", "true",
+            "--dynamic_erf", "true" if DYNAMIC_ERF else "false",
             "--derf_alpha_init_value", str(DERF_ALPHA_INIT_VALUE),
             "--derf_freeze_alpha", "true" if DERF_FREEZE_ALPHA else "false",
             "--save_ckpt", "true",
@@ -146,12 +189,13 @@ for DERF_ALPHA_INIT_VALUE in [0.7, 0.8]:
         dyt_main.main(args)
 ```
 
-### Pre-LN depth sweep
+### Pre-LN Depth Sweep
 
-This is the same pattern, except `--dynamic_erf false`. In other words, you still control the depth with `--model_depth`, but you leave the model in its standard pre-LN form.
+This is the same pattern, except `--dynamic_erf false`. You still control depth with `--model_depth`, but the model stays in its standard pre-LN form.
 
 ```python
 from pathlib import Path
+
 import main as dyt_main
 
 MODEL_NAME = "vit_base_patch16_224"
@@ -192,10 +236,11 @@ args = parser.parse_args([
 dyt_main.main(args)
 ```
 
-### Scaling both MLP and attention-value initialization
+### Scaling Both MLP and Attention-Value Initialization
 
 ```python
 from pathlib import Path
+
 import main as dyt_main
 
 MODEL_NAME = "vit_base_patch16_224"
@@ -238,19 +283,3 @@ for mult in [4.0]:
     ])
     dyt_main.main(args)
 ```
-
-## APJN utilities
-
-The refactored notebook-facing utilities now live in:
-
-- [vit_apjn_notebook_helpers.py](/Users/sergeyalekseev/Desktop/ML_projects/norm_free_transformer/subcritical_signal_prop/vit_apjn_notebook_helpers.py): computation, theory, save/load, CIFAR and equiangular APJN runners.
-- [vit_apjn_plots.py](/Users/sergeyalekseev/Desktop/ML_projects/norm_free_transformer/subcritical_signal_prop/vit_apjn_plots.py): plotting only.
-
-The main entry points are:
-
-- `simulate_recursions_full`
-- `run_cifar_inverse_apjn_with_activation_stats`
-- `run_cifar_forward_apjn_with_activation_stats`
-- `run_cifar_apjn_experiment` with `input_source="equiangular"`
-
-There is also a Colab notebook in [notebooks/apjn_colab_demo.ipynb](/Users/sergeyalekseev/Desktop/ML_projects/norm_free_transformer/subcritical_signal_prop/notebooks/apjn_colab_demo.ipynb) that clones the repo, runs the APJN workflows, computes theory curves, and plots theory-vs-experiment plus GMFEs.
