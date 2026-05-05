@@ -9,17 +9,14 @@ This repo has two main parts:
 
 If your goal is to run, inspect, or extend the APJN experiments, start with [notebooks/apjn_colab_demo.ipynb](/Users/sergeyalekseev/Desktop/ML_projects/norm_free_transformer/subcritical_signal_prop/notebooks/apjn_colab_demo.ipynb).
 
-It is the main entry point for the APJN part of this repo and shows the intended end-to-end workflow. It:
+It is the main entry point for the APJN part of this repo. It:
 
 - clones the repo and installs the minimal dependencies,
-- runs permutation-symmetric input APJN experiments on ViT models,
-- runs backward APJN measurements on CIFAR-100,
-- runs forward APJN measurements on CIFAR-100,
+- runs APJN measurements on ViT models with permutation-symmetric input,
+- runs APJN measurements on CIFAR-100,
 - builds theory curves from measured initial conditions,
-- plots theory vs. experiment,
-- plots depth-wise GMFEs.
-
-If you want to understand how the APJN pipeline is meant to be used end-to-end, start with that notebook.
+- plots theory vs. experiment and depth-wise GMFEs,
+- includes working examples of how to launch ViT training runs from the notebook.
 
 ## APJN Tools
 
@@ -248,7 +245,7 @@ EPOCHS = 15
 DEPTH = 12
 DERF_ALPHA_INIT_VALUE = 0.5
 
-for mult in [4.0]:
+for mult in [2.0, 4.0]:
     parser = dyt_main.get_args_parser()
     args = parser.parse_args([
         "--model", MODEL_NAME,
