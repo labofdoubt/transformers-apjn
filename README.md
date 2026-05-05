@@ -1,4 +1,4 @@
-# Norm-Free Transformer Experiments
+# Subcritical Signal Propagation at Initialization in Normalization-Free Transformers
 
 This repo has two main parts:
 
